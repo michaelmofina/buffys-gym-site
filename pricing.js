@@ -102,3 +102,71 @@ pool.slice(0,3).forEach(photo=>{
  print.addEventListener('pointermove',e=>{if(!drag)return;x=e.clientX-drag.x;y=e.clientY-drag.y;print.style.translate=`${x}px ${y}px`;});
  const stop=()=>{drag=null;};print.addEventListener('pointerup',stop);print.addEventListener('pointercancel',stop);
 });
+
+const BOOKING_LINKS = {
+  "free": "https://momence.com/Buffy's-Gym/membership/Free-Class/404834",
+  "intro": "https://momence.com/Buffy's-Gym/membership/Buff-21-Pass-(Intro-Offer)/401193",
+  "twice": "https://momence.com/Buffy's-Gym/membership/-Buffy%E2%80%99s-2X-Club-(Bi-Weekly)/463942",
+  "monthly": "https://momence.com/Buffy's-Gym/membership/Buffy%E2%80%99s-Babe's-Tier-2-Monthly-Membership.--Most-cost-effective-option-for-committed-members/565863",
+  "fortnight": "https://momence.com/Buffy's-Gym/membership/Buffy%E2%80%99s-Babe's-Tier-2-Bi-Weekly-Membership.--Most-cost-effective-option-for-committed-members/565867",
+  "10": "https://momence.com/Buffy's-Gym/membership/10-Class-Pack--%2433%2FClass/398571",
+  "20": "https://momence.com/Buffy's-Gym/membership/20-Class-Pack--%2427%2Fclass/398575",
+  "coaching": "https://momence.com/u/buffy%27s-gym-cSF0dy",
+  "schedule": "https://momence.com/u/buffy%27s-gym-cSF0dy"
+};
+
+(() => {
+ const form = document.querySelector('.plan-questions');
+ if (!form) return;
+ const answer = name => form.elements[name].value;
+ const show = (name, visible) => {
+  const fieldset = form.querySelector(`[data-question="${name}"]`);
+  fieldset.hidden = !visible;
+  fieldset.disabled = !visible;
+ };
+ function currentPlan() {
+  const personal = answer('service') === 'personal';
+  const mode = answer('classMode');
+  show('classMode', !personal);
+  show('pack', !personal && mode === 'pack');
+  show('intro', !personal && mode === 'intro');
+  show('frequency', !personal && mode === 'membership');
+  show('billing', !personal && mode === 'membership' && answer('frequency') === 'unlimited');
+  show('people', personal);
+  show('sessions', personal);
+  if (personal) {
+   const partner = answer('people') === 'partner';
+   const count = answer('sessions');
+   const prices = partner ? {1:160,4:640,8:1220,12:1740} : {1:120,4:440,8:840,12:1200};
+   return {title:partner?'Partner training':'Personal training',subtitle:`${count} ${count === '1'?'session':'sessions'}`,price:prices[count],term:'One-time payment',benefits:[partner?'Two people, one coach':'One-on-one coaching',`${count} ${count === '1'?'coached session':'coached sessions'}`,'Book by appointment'],cta:'View booking options',href:BOOKING_LINKS.coaching};
+  }
+  if (mode === 'intro') {
+   if (answer('intro') === 'free') return {title:'Your first class',subtitle:'Try small group training',price:0,term:'For new members',benefits:['One small group class','Up to 10 people, led by a coach'],cta:'Book a free class',href:BOOKING_LINKS.free};
+   return {title:'Buff 21 Pass',subtitle:'Your introduction to Buffy’s',price:150,term:'One-time payment',benefits:['Unlimited classes for 21 days','1 partner pass to bring a friend to a class'],cta:'Get the intro pass',href:BOOKING_LINKS.intro};
+  }
+  if (mode === 'pack') {
+   const count = answer('pack');
+   if (count === '1') return {title:'Drop-in class',subtitle:'Small group training',price:35,term:'One class',benefits:['One coach-led class','Book a time on the class schedule'],cta:'Book a class',href:BOOKING_LINKS.schedule};
+   return {title:`${count}-class pack`,subtitle:'Small group classes',price:count==='10'?330:540,term:'One-time payment',benefits:[`${count} small group classes`,count==='10'?'$33 per class':'$27 per class',count==='10'?'Expires after 3 months':'Expires after 4 months'],cta:`Buy ${count} classes`,href:BOOKING_LINKS[count]};
+  }
+  if (answer('frequency') === 'twice') return {title:'Buffy’s 2X Club',subtitle:'Two classes a week',price:128,term:'Every 14 days',benefits:['2 classes each week','Access to all class types','No commitment'],cta:'Join the 2X Club',href:BOOKING_LINKS.twice};
+  const monthly = answer('billing') === 'monthly';
+  return {title:'Unlimited classes',subtitle:'Buffy’s Babes membership',price:monthly?310:155,term:monthly?'Every month':'Every 15 days',benefits:['Unlimited access to classes',monthly?'Renews every month':'Renews every 15 days'],cta:'Join unlimited',href:monthly?BOOKING_LINKS.monthly:BOOKING_LINKS.fortnight};
+ }
+ function render(announce = true) {
+  const plan = currentPlan();
+  const price = plan.price === 0 ? 'Free' : '$' + plan.price.toLocaleString('en-CA');
+  document.querySelector('#plan-title').textContent = plan.title;
+  document.querySelector('#plan-subtitle').textContent = plan.subtitle;
+  document.querySelector('#plan-price').textContent = price;
+  document.querySelector('#plan-term').textContent = plan.term;
+  document.querySelector('#plan-benefits').replaceChildren(...plan.benefits.map(text => {const li=document.createElement('li');li.textContent=text;return li;}));
+  const purchase = document.querySelector('#plan-purchase');
+  purchase.href = plan.href;
+  purchase.textContent = plan.cta;
+  if (announce) document.querySelector('#plan-announcement').textContent = `${plan.title}. ${plan.subtitle}. ${price} Canadian dollars. ${plan.term}.`;
+ }
+ form.addEventListener('change', () => render());
+ form.addEventListener('submit', event => event.preventDefault());
+ render(false);
+})();
