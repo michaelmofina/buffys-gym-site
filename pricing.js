@@ -164,9 +164,73 @@ const BOOKING_LINKS = {
   const purchase = document.querySelector('#plan-purchase');
   purchase.href = plan.href;
   purchase.textContent = plan.cta;
+  document.querySelector('#mobile-plan-title').textContent = plan.title;
+  document.querySelector('#mobile-plan-price').textContent = price;
+  document.querySelector('#mobile-plan-term').textContent = plan.term;
+  const mobilePurchase = document.querySelector('#mobile-plan-purchase');
+  mobilePurchase.href = plan.href;
+  mobilePurchase.textContent = plan.cta;
+  document.querySelector('.mobile-plan-toggle').setAttribute('aria-label', `View plan details: ${plan.title}, ${price}, ${plan.term}`);
   if (announce) document.querySelector('#plan-announcement').textContent = `${plan.title}. ${plan.subtitle}. ${price} Canadian dollars. ${plan.term}.`;
  }
  form.addEventListener('change', () => render());
  form.addEventListener('submit', event => event.preventDefault());
  render(false);
+
+ // Move the same summary into a native modal on mobile, so every view uses one plan.
+ const summary = document.querySelector('.plan-summary');
+ const summaryHome = document.createComment('Plan summary desktop position');
+ summary.before(summaryHome);
+ const bar = document.querySelector('.mobile-plan-bar');
+ const toggle = document.querySelector('.mobile-plan-toggle');
+ const sheet = document.querySelector('#plan-sheet');
+ const mobile = matchMedia('(max-width: 760px)');
+ let savedScroll = null;
+ let closeTimer = null;
+ const restorePage = () => {
+  clearTimeout(closeTimer);
+  sheet.classList.remove('is-closing');
+  toggle.setAttribute('aria-expanded', 'false');
+  if (savedScroll) {
+   const { x, y, styles } = savedScroll;
+   Object.assign(document.body.style, styles);
+   savedScroll = null;
+   window.scrollTo({left:x, top:y, behavior:'instant'});
+  }
+ };
+ const finishClose = () => { if (sheet.open) sheet.close(); restorePage(); };
+ const closeSheet = () => {
+  if (!sheet.open || sheet.classList.contains('is-closing')) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { finishClose(); return; }
+  sheet.classList.add('is-closing');
+  closeTimer = setTimeout(finishClose, 240);
+ };
+ toggle.addEventListener('click', () => {
+  if (!mobile.matches || sheet.open) return;
+  const styles = Object.fromEntries(['position','top','left','width','overflow'].map(key => [key, document.body.style[key]]));
+  savedScroll = {x:window.scrollX, y:window.scrollY, styles};
+  Object.assign(document.body.style, {position:'fixed', top:`-${savedScroll.y}px`, left:`-${savedScroll.x}px`, width:'100%', overflow:'hidden'});
+  sheet.showModal();
+  toggle.setAttribute('aria-expanded', 'true');
+ });
+ sheet.querySelector('.plan-sheet-close').addEventListener('click', closeSheet);
+ sheet.addEventListener('cancel', event => { event.preventDefault(); closeSheet(); });
+ sheet.addEventListener('close', restorePage);
+ sheet.addEventListener('click', event => {
+  if (event.target !== sheet) return;
+  const rect = sheet.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeSheet();
+ });
+ const syncLayout = () => {
+  if (!mobile.matches) finishClose();
+  if (mobile.matches) sheet.append(summary);
+  else summaryHome.after(summary);
+  bar.hidden = !mobile.matches;
+  document.documentElement.classList.toggle('mobile-plan-active', mobile.matches);
+ };
+ mobile.addEventListener('change', syncLayout);
+ new ResizeObserver(() => {
+  if (mobile.matches) document.documentElement.style.setProperty('--mobile-plan-height', `${bar.offsetHeight}px`);
+ }).observe(bar);
+ syncLayout();
 })();

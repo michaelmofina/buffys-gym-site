@@ -6,16 +6,42 @@ function tennisTiltVector(beta, gamma, angle, neutral) {
     y: Math.max(-1, Math.min(1, gy * Math.cos(a) - gx * Math.sin(a) - neutral.y)) };
 }
 function advanceTennisBall(s, dt, bounds, gravity, flat) {
-  const drag = Math.exp(-(flat ? 1.8 : .35) * dt);
+  const drag = Math.exp(-(flat ? 1.8 : .10) * dt);
   s.vx = (s.vx + gravity.x * dt) * drag;
   s.vy = (s.vy + gravity.y * dt) * drag;
   s.x += s.vx * dt; s.y += s.vy * dt;
+  // A tennis ball returns most of its speed on impact. Low-energy floor
+  // contacts settle instead of repeatedly injecting tiny gravity bounces.
   for (const [pos, vel, max] of [['x', 'vx', bounds.x], ['y', 'vy', bounds.y]]) {
-    if (s[pos] < bounds.r) { s[pos] = bounds.r; s[vel] = Math.abs(s[vel]) * .62; }
-    if (s[pos] > max) { s[pos] = max; s[vel] = -Math.abs(s[vel]) * .62; }
-    if (Math.abs(s[vel]) < 12 && (s[pos] === bounds.r || s[pos] === max)) s[vel] = 0;
+    if (s[pos] < bounds.r) {
+      s[pos] = bounds.r;
+      if (s[vel] < 0) s[vel] = -s[vel] * .84;
+    }
+    if (s[pos] > max) {
+      s[pos] = max;
+      if (s[vel] > 0) s[vel] = !flat && pos === 'y' && s[vel] < 55 ? 0 : -s[vel] * .84;
+    }
+    if (flat && Math.abs(s[vel]) < 12 && (s[pos] === bounds.r || s[pos] === max)) s[vel] = 0;
   }
-  if (!flat && s.y === bounds.y) s.vx *= Math.exp(-3.5 * dt);
+  if (!flat && s.y === bounds.y && s.vy === 0) {
+    const speed = Math.max(0, Math.abs(s.vx) - 90 * dt);
+    s.vx = Math.sign(s.vx) * speed;
+  }
+}
+
+function tennisThrowVelocity(samples, releasedAt) {
+  // Use the recent gesture, including pointer-up, rather than the final tiny
+  // move event. Raw pointer positions retain intent at the screen edges.
+  const recent = samples.filter(p => releasedAt - p.t <= 100);
+  if (recent.length < 2) return {vx:0, vy:0};
+  const first = recent[0], last = recent[recent.length - 1];
+  const dt = (last.t - first.t) / 1000;
+  if (dt < .008) return {vx:0, vy:0};
+  let vx = (last.x - first.x) / dt * 1.08;
+  let vy = (last.y - first.y) / dt * 1.08;
+  const speed = Math.hypot(vx, vy), cap = 2600;
+  if (speed > cap) {vx *= cap / speed; vy *= cap / speed;}
+  return {vx, vy};
 }
 (() => {
   const layer = document.querySelector('.ball-layer'), ball = layer?.querySelector('.ball');
@@ -29,26 +55,58 @@ function advanceTennisBall(s, dt, bounds, gravity, flat) {
   }
   function returnHome(){layer.classList.remove('is-roaming');home.append(layer);}
   const dog = layer.querySelector('.fetcher');
+  // Prepare the photographic stickers as the footer approaches, then cycle
+  // through every pose before repeating one. Keep the images off the hero load.
+  const stickerSources = [
+    'assets/stickers/buffy-ball.webp',
+    'assets/stickers/buffy-red-toy.webp',
+    'assets/stickers/buffy-bandana.webp'
+  ];
+  let stickerCursor = Math.floor(Math.random() * stickerSources.length);
+  let stickerReady;
+  const loadStickers = () => stickerReady ||= Promise.all(stickerSources.map(src => {
+    const image = new Image();
+    image.src = src;
+    return image.decode().then(() => image).catch(() => null);
+  })).then(images => images.filter(Boolean));
+  const stickerObserver = new IntersectionObserver(entries => {
+    if (!entries.some(entry => entry.isIntersecting)) return;
+    loadStickers();
+    stickerObserver.disconnect();
+  }, { rootMargin: '300px' });
+  stickerObserver.observe(home);
+
   const canvas = ball.querySelector('canvas'), tiltButton = layer.querySelector('.ball-tilt');
   const status = layer.querySelector('.ball-status');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let R = ball.getBoundingClientRect().width / 2;
   const state = {x:80,y:80,vx:0,vy:0};
-  let raf = 0, previous = 0, held = false, pointer = null, lastPointer = null;
+  let raf = 0, previous = 0, held = false, pointer = null, lastPointer = null, pointerSamples = [];
   let paused = reduced.matches, tilt = false, waitingForSensor = false, sensorTimer = 0;
-  let gravity = {x:0,y:1500}, neutral = null, screenAngle = 0;
+  let gravity = {x:0,y:1050}, neutral = null, screenAngle = 0;
   let q = [.12,.08,.40,.90], gl, program, rotationUniform;
-  let thrown=false, fetching=false, fetchTimers=[];
+  let thrown=false, fetching=false, fetchTimers=[], fetchVersion=0, settledFetchTimer=0;
   const later=(fn,ms)=>{const id=setTimeout(fn,ms);fetchTimers.push(id);};
   function resetFetch(){
+    clearTimeout(settledFetchTimer);settledFetchTimer=0;
+    fetchVersion++;
     fetchTimers.forEach(clearTimeout);fetchTimers=[];fetching=false;thrown=false;
     dog?.classList.remove('is-fetching');ball.classList.remove('is-gone');
   }
-  function fetchBall(){
+  async function fetchBall(){
     if(!dog||fetching||paused||held||document.hidden||reduced.matches)return;
     fetching=true;thrown=false;stop();
+    const version=++fetchVersion;
+    const stickers=await loadStickers();
+    if(version!==fetchVersion)return;
+    if(paused||held||document.hidden||reduced.matches){resetFetch();return;}
+    if(stickers.length){
+      dog.src=stickers[stickerCursor % stickers.length].src;
+      stickerCursor++;
+    }
     state.y=bounds().y;draw();
-    dog.style.left=clamp(state.x,60,layer.clientWidth-60)+'px';
+    const halfSticker=dog.getBoundingClientRect().width/2;
+    dog.style.left=clamp(state.x,halfSticker,layer.clientWidth-halfSticker)+'px';
     dog.classList.add('is-fetching');status.textContent='Here comes Buffy!';
     later(()=>{ball.classList.add('is-gone');status.textContent='Buffy got the ball.';},650);
     later(()=>dog.classList.remove('is-fetching'),1600);
@@ -128,6 +186,10 @@ function advanceTennisBall(s, dt, bounds, gravity, flat) {
     gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniformMatrix3fv(rotationUniform,false,new Float32Array(matrix)); gl.drawArrays(gl.TRIANGLES,0,6);
   }
+  function isBallStill() {
+    const speed=Math.hypot(state.vx,state.vy);
+    return tilt ? speed<3 && Math.hypot(gravity.x,gravity.y)<18 : speed<3 && state.y===bounds().y;
+  }
   function step(now) {
     raf=0;
     if(paused || held || fetching || document.hidden) return;
@@ -135,9 +197,18 @@ function advanceTennisBall(s, dt, bounds, gravity, flat) {
     const oldX=state.x,oldY=state.y;
     for(let i=0;i<3;i++) advanceTennisBall(state,dt/3,bounds(),gravity,tilt);
     roll(state.x-oldX,state.y-oldY);draw();
-    const speed=Math.hypot(state.vx,state.vy);
-    const still=tilt ? speed<3 && Math.hypot(gravity.x,gravity.y)<18 : speed<3 && state.y===bounds().y;
-    if(!still) raf=requestAnimationFrame(step); else {state.vx=0;state.vy=0;if(thrown)fetchBall();}
+    if(!isBallStill()) {
+      clearTimeout(settledFetchTimer);settledFetchTimer=0;
+      raf=requestAnimationFrame(step);
+    } else {
+      state.vx=0;state.vy=0;
+      if(thrown&&!settledFetchTimer) settledFetchTimer=setTimeout(()=>{
+        // Clear the guard even if motion resumed, so the next rest can schedule again.
+        settledFetchTimer=0;
+        if(!thrown||held||paused||fetching||document.hidden||reduced.matches)return;
+        if(isBallStill())fetchBall();else run();
+      },450);
+    }
   }
   function run(){if(!raf&&!paused&&!held&&!fetching&&!document.hidden){previous=performance.now();raf=requestAnimationFrame(step);}}
   function stop(){cancelAnimationFrame(raf);raf=0;state.vx=0;state.vy=0;}
@@ -148,32 +219,38 @@ function advanceTennisBall(s, dt, bounds, gravity, flat) {
   }
   ball.addEventListener('pointerdown',e=>{
     if(paused || fetching || e.button!==0) return;
-    e.preventDefault();roam();stop();held=true;pointer=e.pointerId;ball.setPointerCapture(pointer);
-    lastPointer={x:e.clientX,y:e.clientY,t:performance.now()};ball.classList.add('is-held');
+    e.preventDefault();resetFetch();roam();stop();held=true;pointer=e.pointerId;ball.setPointerCapture(pointer);
+    lastPointer={x:e.clientX,y:e.clientY};pointerSamples=[{x:e.clientX,y:e.clientY,t:e.timeStamp}];ball.classList.add('is-held');
   });
   ball.addEventListener('pointermove',e=>{
     if(!held||e.pointerId!==pointer)return;
-    const now=performance.now(),dt=Math.max((now-lastPointer.t)/1000,.008),b=bounds();
+    const b=bounds();
     const oldX=state.x,oldY=state.y;
     state.x=clamp(state.x+e.clientX-lastPointer.x,R,b.x);state.y=clamp(state.y+e.clientY-lastPointer.y,R,b.y);
-    state.vx=clamp((state.x-oldX)/dt,-1500,1500);state.vy=clamp((state.y-oldY)/dt,-1500,1500);
-    roll(state.x-oldX,state.y-oldY);lastPointer={x:e.clientX,y:e.clientY,t:now};draw();
+    const points=e.getCoalescedEvents?.()||[];
+    for(const point of points.length?points:[e])pointerSamples.push({x:point.clientX,y:point.clientY,t:point.timeStamp});
+    pointerSamples=pointerSamples.filter(p=>e.timeStamp-p.t<=120);
+    roll(state.x-oldX,state.y-oldY);lastPointer={x:e.clientX,y:e.clientY};draw();
   });
   function release(e){
     if(!held||e.pointerId!==pointer)return;
-    if(e.type!=='pointerup'||performance.now()-lastPointer.t>100){state.vx=0;state.vy=0;}
+    if(e.type==='pointerup'){
+      pointerSamples.push({x:e.clientX,y:e.clientY,t:e.timeStamp});
+      Object.assign(state,tennisThrowVelocity(pointerSamples,e.timeStamp));
+    }else{state.vx=0;state.vy=0;}
+    pointerSamples=[];
     held=false;pointer=null;ball.classList.remove('is-held');
-    thrown=e.type==='pointerup';if(thrown)later(()=>{if(thrown&&!held&&!paused)fetchBall();},4200);run();
+    thrown=e.type==='pointerup';run();
   }
   ['pointerup','pointercancel','lostpointercapture'].forEach(name=>ball.addEventListener(name,release));
   ball.addEventListener('keydown',e=>{
     if(paused||fetching)return;
-    const directions={ArrowLeft:[-420,0],ArrowRight:[420,0],ArrowUp:[0,-650],ArrowDown:[0,420],' ':[450,-650],Enter:[450,-650]};
-    if(!directions[e.key])return;e.preventDefault();roam();[state.vx,state.vy]=directions[e.key];thrown=true;later(()=>{if(thrown&&!held&&!paused)fetchBall();},4200);run();
+    const directions={ArrowLeft:[-700,-180],ArrowRight:[700,-180],ArrowUp:[0,-1050],ArrowDown:[0,700],' ':[700,-1050],Enter:[700,-1050]};
+    if(!directions[e.key])return;e.preventDefault();resetFetch();roam();[state.vx,state.vy]=directions[e.key];thrown=true;run();
   });
   function disableTilt(message='Tilt off. Drag the ball to throw it.'){
     tilt=false;waitingForSensor=false;neutral=null;clearTimeout(sensorTimer);
-    window.removeEventListener('deviceorientation',orient);gravity={x:0,y:1500};
+    window.removeEventListener('deviceorientation',orient);gravity={x:0,y:1050};
     tiltButton.textContent='Tilt to roll';tiltButton.setAttribute('aria-pressed','false');status.textContent=message;run();
   }
   function orient(e){
@@ -218,17 +295,33 @@ function advanceTennisBall(s, dt, bounds, gravity, flat) {
   const wordmark = document.querySelector('.footer-wordmark');
   if (!wordmark) return;
   const context = document.createElement('canvas').getContext('2d');
+  if (!context) return;
+  const font = style => `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
   const fit = () => {
     const style = getComputedStyle(wordmark);
-    context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    context.letterSpacing = style.letterSpacing;
+    context.font = font(style);
+    context.fontKerning = style.fontKerning;
+    context.letterSpacing = style.letterSpacing === 'normal' ? '0px' : style.letterSpacing;
+    context.wordSpacing = style.wordSpacing === 'normal' ? '0px' : style.wordSpacing;
+    context.textAlign = 'left';
+    context.direction = style.direction;
     const metrics = context.measureText(wordmark.textContent.trim());
     const inkWidth = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight;
     if (!inkWidth) return;
-    const scale = wordmark.parentElement.clientWidth / inkWidth;
-    wordmark.style.transform = `translateX(${metrics.actualBoundingBoxLeft * scale}px) scaleX(${scale})`;
+    const scale = document.documentElement.clientWidth / inkWidth;
+    wordmark.style.transform = 'none';
+    const origin = wordmark.getBoundingClientRect().left;
+    wordmark.style.transform = `translateX(${metrics.actualBoundingBoxLeft * scale - origin}px) scaleX(${scale})`;
   };
-  document.fonts.ready.then(fit);
+  const refresh = async () => {
+    const style=getComputedStyle(wordmark);
+    await document.fonts.load(font(style),wordmark.textContent.trim());
+    requestAnimationFrame(fit);
+  };
+  document.fonts.ready.then(refresh);
+  new ResizeObserver(refresh).observe(wordmark.parentElement);
+  new MutationObserver(refresh).observe(document.documentElement,{attributes:true,attributeFilter:['class','data-type','data-reference-fonts','style']});
+  window.addEventListener('load',refresh);
   document.fonts.addEventListener('loadingdone', fit);
   window.addEventListener('resize', fit);
 })();
