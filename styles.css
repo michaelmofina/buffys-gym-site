@@ -1771,7 +1771,7 @@ h2 { font-size: clamp(2rem, 3.8vw, 3.35rem); margin-bottom: 1.6rem; }
 @media (prefers-reduced-motion:reduce) { .ball { transition:none; } }
 
 /* October review: the photographs and typography carry the identity. */
-:root { --display:'Barlow Condensed','Arial Narrow',sans-serif; --heading-weight:700; }
+:root { --display:'Buffy Display','Arial Narrow',sans-serif; --heading-weight:400; }
 html[data-type='archivo'] { --display:'Archivo',sans-serif; --heading-weight:900; }
 html[data-type='fraunces'] { --display:'Fraunces',Georgia,serif; --heading-weight:700; }
 *,*::before,*::after { box-shadow:none !important; text-shadow:none !important; }
@@ -1989,12 +1989,12 @@ main section[id] { scroll-margin-top:calc(var(--site-nav-height,80px) + 16px); }
 /* The closing section: practical answers, without another signup or sales pitch. */
 .faq { padding:clamp(64px,8vw,112px) 0; background:var(--band); }
 .faq-layout { display:grid; grid-template-columns:1fr 2fr; gap:clamp(32px,6vw,80px); align-items:start; }
-html[data-type='mixed'] .faq h2 { font-family:'Buffy Suisse Preview',Arial,sans-serif; font-size:clamp(2.5rem,3.8vw,3.4rem); font-weight:500; text-transform:none; letter-spacing:-.035em; line-height:1.08; }
+html[data-type='mixed'] .faq h2 { font-family:'Buffy Sans',Arial,sans-serif; font-size:clamp(2.5rem,3.8vw,3.4rem); font-weight:500; text-transform:none; letter-spacing:-.035em; line-height:1.08; }
 .faq h2 { margin:0; }
 .faq-item { border-bottom:1px solid color-mix(in srgb,var(--ink) 22%,transparent); }
 .faq-item:first-child { border-top:1px solid color-mix(in srgb,var(--ink) 22%,transparent); }
 .faq-item summary { list-style:none; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:24px 0; font:500 1.2rem/1.35 var(--body); cursor:pointer; }
-html[data-type='mixed'] .faq-item summary { font-family:'Buffy Suisse Preview',Arial,sans-serif; }
+html[data-type='mixed'] .faq-item summary { font-family:'Buffy Sans',Arial,sans-serif; }
 .faq-item summary::-webkit-details-marker { display:none; }
 .faq-item summary:focus-visible { outline:2px solid var(--ink); outline-offset:6px; }
 .faq-toggle { position:relative; width:18px; height:18px; flex:none; }

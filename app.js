@@ -282,43 +282,91 @@ window.addEventListener("resize", () => {
 mobile.addEventListener("change", () => layoutFan());
 
 // ---------------------------------------------------------------------------
-// The rooms — cycle three spaces; tap a dot in any of them for a photo.
-// Each slide's <img class="room-scene"> can be swapped for a <video> and this
-// keeps working: the active room's clip plays, the others pause.
+// Room tours: load the active clip nearby and pause whenever it is out of view.
 // ---------------------------------------------------------------------------
 const roomEl = document.querySelector(".room");
 if (roomEl) {
   const slides = [...roomEl.querySelectorAll(".room-slide")];
   const tabs = [...document.querySelectorAll(".room-tabs [role='tab']")];
+  const clips = slides.map(slide => slide.querySelector('video')).filter(Boolean);
+  const toggle = roomEl.querySelector('.room-media-toggle');
   const stillPlease = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const closeRoom = () => {};
-  let current = 0;
+  let current = 0, nearby = false, visible = false, userPaused = false, manualPlay = false;
+  const activeClip = () => slides[current].querySelector('video');
+  const wantsPlayback = () => !userPaused && (!stillPlease.matches || manualPlay);
+  const canPlay = clip => clip === activeClip() && nearby && visible && !document.hidden && wantsPlayback();
+  const updateToggle = () => {
+    const clip = activeClip();
+    toggle.hidden = !clip;
+    if (!clip) return;
+    const playing = !clip.paused;
+    toggle.textContent = playing ? 'Pause video' : 'Play video';
+    toggle.setAttribute('aria-label', `${playing ? 'Pause' : 'Play'} ${slides[current].dataset.room.toLowerCase()} video`);
+    toggle.setAttribute('aria-controls', clip.id);
+  };
+  const syncMedia = () => {
+    const active = activeClip();
+    clips.forEach(clip => { if (!canPlay(clip)) clip.pause(); });
+    if (active && nearby && !document.hidden && wantsPlayback()) {
+      // Source URLs stay inert until this active room approaches the viewport.
+      let attached = false;
+      active.querySelectorAll('source[data-src]').forEach(source => {
+        if (!source.hasAttribute('src')) { source.src = source.dataset.src; attached = true; }
+      });
+      if (attached) { active.preload = 'metadata'; active.load(); }
+      if (canPlay(active)) {
+        const request = active.play();
+        Promise.resolve(request).then(() => {
+          // A room/visibility change can arrive while playback is starting.
+          if (!canPlay(active)) active.pause();
+          updateToggle();
+        }).catch(updateToggle);
+      }
+    }
+    updateToggle();
+  };
   const showRoom = (i, focusTab = false) => {
     current = (i + slides.length) % slides.length;
     document.querySelectorAll("[data-room-description]").forEach((el,n)=>el.hidden=n!==current);
-    closeRoom();
     slides.forEach((slide, n) => {
       const on = n === current;
-      // unhide first so the crossfade has something to fade to
       if (on) slide.hidden = false;
       slide.classList.toggle("is-active", on);
       if (!on) setTimeout(() => { if (!slide.classList.contains("is-active")) slide.hidden = true; }, 450);
-      const clip = slide.querySelector("video");
-      if (clip) {
-        if (on && !stillPlease.matches) clip.play().catch(() => {});
-        else clip.pause();
-      }
     });
     tabs.forEach((tab, n) => {
       tab.setAttribute("aria-selected", String(n === current));
       tab.tabIndex = n === current ? 0 : -1;
       if (n === current && focusTab) tab.focus();
     });
+    syncMedia();
   };
 
+  toggle.addEventListener('click', () => {
+    const clip = activeClip();
+    if (!clip) return;
+    userPaused = !clip.paused;
+    manualPlay = !userPaused;
+    syncMedia();
+  });
+  clips.forEach(clip => {
+    clip.addEventListener('play', updateToggle);
+    clip.addEventListener('pause', updateToggle);
+  });
+  new IntersectionObserver(([entry]) => {
+    nearby = entry.isIntersecting;
+    syncMedia();
+  }, {rootMargin:'300px 0px'}).observe(roomEl);
+  new IntersectionObserver(([entry]) => {
+    visible = entry.isIntersecting && entry.intersectionRatio > 0;
+    syncMedia();
+  }, {threshold:0.01}).observe(roomEl);
+  document.addEventListener('visibilitychange', syncMedia);
+  stillPlease.addEventListener('change', () => {
+    if (stillPlease.matches) manualPlay = false;
+    syncMedia();
+  });
   tabs.forEach((tab, n) => tab.addEventListener("click", () => showRoom(n)));
-
-  // standard tablist keyboard behaviour
   document.querySelector(".room-tabs")?.addEventListener("keydown", (e) => {
     if (e.key === "ArrowRight") showRoom(current + 1, true);
     else if (e.key === "ArrowLeft") showRoom(current - 1, true);
@@ -327,14 +375,8 @@ if (roomEl) {
     else return;
     e.preventDefault();
   });
-
   roomEl.querySelector(".room-prev")?.addEventListener("click", () => showRoom(current - 1));
   roomEl.querySelector(".room-next")?.addEventListener("click", () => showRoom(current + 1));
-
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeRoom();
-  });
-
   showRoom(0);
 }
 

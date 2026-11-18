@@ -1,0 +1,9 @@
+.footer-policy{display:flex;gap:20px;position:absolute;right:3.5vw;top:0;padding-top:5px;font:400 12px/1.5 var(--body)}
+.footer-policy a,.footer-policy button{font:inherit;color:inherit;background:none;border:0;padding:0;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.footer-policy button:focus-visible{outline:2px solid currentColor;outline-offset:5px}
+.footer-masthead{position:relative}
+@media(max-width:760px){.footer-policy{position:static;padding:0 3.5vw 16px;order:-1}.footer-masthead{display:flex;flex-direction:column}.footer-meta{order:-2}}
+/* Reserve enough clear space for the larger display capitals between photo rows. */
+@media(min-width:1201px) and (min-height:851px){.hero{padding-block:380px}}
+@media(min-width:1201px) and (max-height:850px){.hero{padding-block:180px}}
+@media(min-width:601px) and (max-width:1200px){.hero{padding-block:300px}}

@@ -149,8 +149,8 @@ const BOOKING_LINKS = {
   if (personal) {
    const partner = answer('people') === 'partner';
    const count = answer('sessions');
-   const prices = partner ? {1:160,4:640,8:1220,12:1740} : {1:120,4:440,8:840,12:1200};
-   return {title:partner?'Partner training':'Personal training',subtitle:`${count} ${count === '1'?'session':'sessions'}`,price:prices[count],term:'One-time payment',benefits:[partner?'Two people, one coach':'One-on-one coaching',`${count} ${count === '1'?'coached session':'coached sessions'}`,'Book by appointment'],cta:'View booking options',href:BOOKING_LINKS.coaching};
+   const rates = partner ? {1:160,4:160,8:150,12:140} : {1:120,4:110,8:105,12:100};
+   return {title:partner?'Partner training':'Personal training',subtitle:`${count} ${count === '1'?'session':'sessions'}`,price:rates[count] * Number(count),term:'One-time payment',benefits:[partner?'Two people, one coach':'One-on-one coaching',`$${rates[count]} per session`,'Book by appointment'],cta:'Enquire about training',href:`contact.html?training=${partner?'partner':'solo'}&sessions=${count}`,external:false};
   }
   if (mode === 'intro') {
    if (answer('intro') === 'free') return {title:'Your first class',subtitle:'Try small group training',price:0,term:'For new members',benefits:['One small group class','Up to 10 people, led by a coach'],cta:'Book a free class',href:BOOKING_LINKS.free};
@@ -182,6 +182,10 @@ const BOOKING_LINKS = {
   const mobilePurchase = document.querySelector('#mobile-plan-purchase');
   mobilePurchase.href = plan.href;
   mobilePurchase.textContent = plan.cta;
+  [purchase, mobilePurchase].forEach(link => {
+   if (plan.external === false) { link.removeAttribute('target'); link.removeAttribute('rel'); }
+   else { link.setAttribute('target', '_blank'); link.setAttribute('rel', 'noopener'); }
+  });
   document.querySelector('.mobile-plan-toggle').setAttribute('aria-label', `View plan details: ${plan.title}, ${price}, ${plan.term}`);
   if (announce) document.querySelector('#plan-announcement').textContent = `${plan.title}. ${plan.subtitle}. ${price} Canadian dollars. ${plan.term}.`;
  }
