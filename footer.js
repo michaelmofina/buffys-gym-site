@@ -1,47 +1,73 @@
-function tennisTiltVector(beta, gamma, angle, neutral) {
-  const rad = Math.PI / 180, a = angle * rad;
-  const gx = Math.sin(gamma * rad) * Math.cos(beta * rad);
-  const gy = Math.sin(beta * rad);
-  return { x: Math.max(-1, Math.min(1, gx * Math.cos(a) + gy * Math.sin(a) - neutral.x)),
-    y: Math.max(-1, Math.min(1, gy * Math.cos(a) - gx * Math.sin(a) - neutral.y)) };
-}
-function advanceTennisBall(s, dt, bounds, gravity, flat) {
-  const drag = Math.exp(-(flat ? 1.8 : .10) * dt);
+function advanceTennisBall(s, dt, bounds, gravity) {
+  // Keep momentum in flight. Ground contacts absorb more energy so a throw
+  // finishes with a short roll instead of a long sequence of tiny bounces.
+  const drag = Math.exp(-.10 * dt);
   s.vx = (s.vx + gravity.x * dt) * drag;
   s.vy = (s.vy + gravity.y * dt) * drag;
   s.x += s.vx * dt; s.y += s.vy * dt;
-  // A tennis ball returns most of its speed on impact. Low-energy floor
-  // contacts settle instead of repeatedly injecting tiny gravity bounces.
   for (const [pos, vel, max] of [['x', 'vx', bounds.x], ['y', 'vy', bounds.y]]) {
     if (s[pos] < bounds.r) {
       s[pos] = bounds.r;
-      if (s[vel] < 0) s[vel] = -s[vel] * .84;
+      if (s[vel] < 0) s[vel] = -s[vel] * .78;
     }
     if (s[pos] > max) {
       s[pos] = max;
-      if (s[vel] > 0) s[vel] = !flat && pos === 'y' && s[vel] < 55 ? 0 : -s[vel] * .84;
+      if (s[vel] > 0) s[vel] = pos === 'y'
+        ? (s[vel] < 140 ? 0 : -s[vel] * .55)
+        : -s[vel] * .78;
     }
-    if (flat && Math.abs(s[vel]) < 12 && (s[pos] === bounds.r || s[pos] === max)) s[vel] = 0;
   }
-  if (!flat && s.y === bounds.y && s.vy === 0) {
-    const speed = Math.max(0, Math.abs(s.vx) - 90 * dt);
+  if (s.y === bounds.y && s.vy === 0) {
+    const speed = Math.max(0, Math.abs(s.vx) - 420 * dt);
     s.vx = Math.sign(s.vx) * speed;
   }
 }
 
+function tennisDragPosition(point, offset, bounds) {
+  // An absolute grab offset survives clamping at the screen edges.
+  return {x:Math.max(bounds.r,Math.min(bounds.x,point.x-offset.x)),
+    y:Math.max(bounds.r,Math.min(bounds.y,point.y-offset.y))};
+}
+
 function tennisThrowVelocity(samples, releasedAt) {
-  // Use the recent gesture, including pointer-up, rather than the final tiny
-  // move event. Raw pointer positions retain intent at the screen edges.
-  const recent = samples.filter(p => releasedAt - p.t <= 100);
-  if (recent.length < 2) return {vx:0, vy:0};
-  const first = recent[0], last = recent[recent.length - 1];
-  const dt = (last.t - first.t) / 1000;
-  if (dt < .008) return {vx:0, vy:0};
-  let vx = (last.x - first.x) / dt * 1.08;
-  let vy = (last.y - first.y) / dt * 1.08;
-  const speed = Math.hypot(vx, vy), cap = 2600;
-  if (speed > cap) {vx *= cap / speed; vy *= cap / speed;}
-  return {vx, vy};
+  if(samples.length<2)return {vx:0,vy:0};
+  let end=samples.length-1;
+  // Compare with the release position, not each adjacent sample: high-polling
+  // mice can move less than half a pixel per event while still moving quickly.
+  const releasePoint=samples[end];
+  while(end>0 && Math.hypot(releasePoint.x-samples[end-1].x,releasePoint.y-samples[end-1].y)<.5)end--;
+  if(end===0)return {vx:0,vy:0};
+  const idle=Math.max(0,releasedAt-samples[end].t);
+  // Mouse-up often follows the last movement by several frames. Preserve that
+  // throw, then fade only for a deliberate hold so placing the ball still works.
+  if(idle>=220)return {vx:0,vy:0};
+  const cutoff=samples[end].t-70;
+  let start=end;
+  while(start>0 && samples[start-1].t>=cutoff)start--;
+  const recent=samples.slice(start,end+1);
+  if(start>0 && recent[0].t>cutoff){
+    const before=samples[start-1],after=recent[0];
+    const time=Math.max(cutoff,before.t),fraction=(time-before.t)/(after.t-before.t);
+    if(after.t>before.t)recent.unshift({x:before.x+(after.x-before.x)*fraction,y:before.y+(after.y-before.y)*fraction,t:time});
+  }
+  if(recent.length<2 || recent[recent.length-1].t-recent[0].t<8)return {vx:0,vy:0};
+  let weight=0,time=0,x=0,y=0;
+  for(const p of recent){
+    const t=(p.t-samples[end].t)/1000,w=Math.exp(t/.035);
+    weight+=w;time+=t*w;x+=p.x*w;y+=p.y*w;
+  }
+  time/=weight;x/=weight;y/=weight;
+  let variance=0,covX=0,covY=0;
+  for(const p of recent){
+    const t=(p.t-samples[end].t)/1000,w=Math.exp(t/.035),delta=t-time;
+    variance+=w*delta*delta;covX+=w*delta*(p.x-x);covY+=w*delta*(p.y-y);
+  }
+  if(variance<1e-8)return {vx:0,vy:0};
+  const gain=1.25*Math.min(1,(220-idle)/120);
+  let vx=covX/variance*gain,vy=covY/variance*gain;
+  const speed=Math.hypot(vx,vy),cap=3000;
+  if(speed>cap){vx*=cap/speed;vy*=cap/speed;}
+  return {vx,vy};
 }
 (() => {
   const layer = document.querySelector('.ball-layer'), ball = layer?.querySelector('.ball');
@@ -76,14 +102,14 @@ function tennisThrowVelocity(samples, releasedAt) {
   }, { rootMargin: '300px' });
   stickerObserver.observe(home);
 
-  const canvas = ball.querySelector('canvas'), tiltButton = layer.querySelector('.ball-tilt');
+  const canvas = ball.querySelector('canvas');
   const status = layer.querySelector('.ball-status');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let R = ball.getBoundingClientRect().width / 2;
   const state = {x:80,y:80,vx:0,vy:0};
-  let raf = 0, previous = 0, held = false, pointer = null, lastPointer = null, pointerSamples = [];
-  let paused = reduced.matches, tilt = false, waitingForSensor = false, sensorTimer = 0;
-  let gravity = {x:0,y:1050}, neutral = null, screenAngle = 0;
+  let raf = 0, previous = 0, held = false, pointer = null, grabOffset = null, pointerSamples = [];
+  let paused = reduced.matches;
+  const gravity = {x:0,y:1050};
   let q = [.12,.08,.40,.90], gl, program, rotationUniform;
   let thrown=false, fetching=false, fetchTimers=[], fetchVersion=0, settledFetchTimer=0;
   const later=(fn,ms)=>{const id=setTimeout(fn,ms);fetchTimers.push(id);};
@@ -188,14 +214,15 @@ function tennisThrowVelocity(samples, releasedAt) {
   }
   function isBallStill() {
     const speed=Math.hypot(state.vx,state.vy);
-    return tilt ? speed<3 && Math.hypot(gravity.x,gravity.y)<18 : speed<3 && state.y===bounds().y;
+    return speed<3 && state.y===bounds().y;
   }
   function step(now) {
     raf=0;
     if(paused || held || fetching || document.hidden) return;
-    const dt=Math.min((now-previous)/1000||1/60,.033); previous=now;
+    const dt=Math.min((now-previous)/1000||1/60,.05); previous=now;
     const oldX=state.x,oldY=state.y;
-    for(let i=0;i<3;i++) advanceTennisBall(state,dt/3,bounds(),gravity,tilt);
+    const steps=Math.ceil(dt*240),b=bounds();
+    for(let i=0;i<steps;i++) advanceTennisBall(state,dt/steps,b,gravity);
     roll(state.x-oldX,state.y-oldY);draw();
     if(!isBallStill()) {
       clearTimeout(settledFetchTimer);settledFetchTimer=0;
@@ -207,7 +234,7 @@ function tennisThrowVelocity(samples, releasedAt) {
         settledFetchTimer=0;
         if(!thrown||held||paused||fetching||document.hidden||reduced.matches)return;
         if(isBallStill())fetchBall();else run();
-      },450);
+      },250);
     }
   }
   function run(){if(!raf&&!paused&&!held&&!fetching&&!document.hidden){previous=performance.now();raf=requestAnimationFrame(step);}}
@@ -218,29 +245,35 @@ function tennisThrowVelocity(samples, releasedAt) {
     if(!paused)run();
   }
   ball.addEventListener('pointerdown',e=>{
-    if(paused || fetching || e.button!==0) return;
+    if(paused || fetching || held || e.button!==0) return;
     e.preventDefault();resetFetch();roam();stop();held=true;pointer=e.pointerId;ball.setPointerCapture(pointer);
-    lastPointer={x:e.clientX,y:e.clientY};pointerSamples=[{x:e.clientX,y:e.clientY,t:e.timeStamp}];ball.classList.add('is-held');
+    grabOffset={x:e.clientX-state.x,y:e.clientY-state.y};
+    pointerSamples=[{x:e.clientX,y:e.clientY,t:e.timeStamp}];ball.classList.add('is-held');
   });
+  function moveToPointer(e){
+    const oldX=state.x,oldY=state.y;
+    Object.assign(state,tennisDragPosition({x:e.clientX,y:e.clientY},grabOffset,bounds()));
+    roll(state.x-oldX,state.y-oldY);draw();
+  }
   ball.addEventListener('pointermove',e=>{
     if(!held||e.pointerId!==pointer)return;
-    const b=bounds();
-    const oldX=state.x,oldY=state.y;
-    state.x=clamp(state.x+e.clientX-lastPointer.x,R,b.x);state.y=clamp(state.y+e.clientY-lastPointer.y,R,b.y);
+    moveToPointer(e);
     const points=e.getCoalescedEvents?.()||[];
     for(const point of points.length?points:[e])pointerSamples.push({x:point.clientX,y:point.clientY,t:point.timeStamp});
-    pointerSamples=pointerSamples.filter(p=>e.timeStamp-p.t<=120);
-    roll(state.x-oldX,state.y-oldY);lastPointer={x:e.clientX,y:e.clientY};draw();
+    pointerSamples=pointerSamples.filter(p=>e.timeStamp-p.t<=160);
   });
   function release(e){
     if(!held||e.pointerId!==pointer)return;
     if(e.type==='pointerup'){
+      moveToPointer(e);
       pointerSamples.push({x:e.clientX,y:e.clientY,t:e.timeStamp});
       Object.assign(state,tennisThrowVelocity(pointerSamples,e.timeStamp));
     }else{state.vx=0;state.vy=0;}
-    pointerSamples=[];
-    held=false;pointer=null;ball.classList.remove('is-held');
-    thrown=e.type==='pointerup';run();
+    const releasedPointer=pointer;
+    pointerSamples=[];grabOffset=null;held=false;pointer=null;ball.classList.remove('is-held');
+    if(ball.hasPointerCapture(releasedPointer))ball.releasePointerCapture(releasedPointer);
+    // Even a cancelled touch should settle and return the ball to its footer.
+    thrown=true;run();
   }
   ['pointerup','pointercancel','lostpointercapture'].forEach(name=>ball.addEventListener(name,release));
   ball.addEventListener('keydown',e=>{
@@ -248,41 +281,13 @@ function tennisThrowVelocity(samples, releasedAt) {
     const directions={ArrowLeft:[-700,-180],ArrowRight:[700,-180],ArrowUp:[0,-1050],ArrowDown:[0,700],' ':[700,-1050],Enter:[700,-1050]};
     if(!directions[e.key])return;e.preventDefault();resetFetch();roam();[state.vx,state.vy]=directions[e.key];thrown=true;run();
   });
-  function disableTilt(message='Tilt off. Drag the ball to throw it.'){
-    tilt=false;waitingForSensor=false;neutral=null;clearTimeout(sensorTimer);
-    window.removeEventListener('deviceorientation',orient);gravity={x:0,y:1050};
-    tiltButton.textContent='Tilt to roll';tiltButton.setAttribute('aria-pressed','false');status.textContent=message;run();
-  }
-  function orient(e){
-    if(!Number.isFinite(e.beta)||!Number.isFinite(e.gamma))return;
-    const angle=screen.orientation?.angle||0;
-    if(!neutral||angle!==screenAngle){neutral=tennisTiltVector(e.beta,e.gamma,angle,{x:0,y:0});screenAngle=angle;}
-    const vector=tennisTiltVector(e.beta,e.gamma,angle,neutral);
-    gravity={x:Math.abs(vector.x)<.015?0:vector.x*1600,y:Math.abs(vector.y)<.015?0:vector.y*1600};
-    if(waitingForSensor){waitingForSensor=false;clearTimeout(sensorTimer);status.textContent='Tilt enabled. Tilt your phone to roll the ball.';}
-    run();
-  }
-  if('DeviceOrientationEvent' in window && isSecureContext && matchMedia('(pointer: coarse)').matches)tiltButton.hidden=false;
-  tiltButton.addEventListener('click',async()=>{
-    if(tilt){disableTilt();return;}
-    try {
-      if(typeof DeviceOrientationEvent.requestPermission==='function'){
-        const permission=await DeviceOrientationEvent.requestPermission();
-        if(permission!=='granted'){status.textContent='Motion access was not enabled. You can still drag the ball.';return;}
-      }
-      tilt=true;waitingForSensor=true;neutral=null;gravity={x:0,y:0};setPause(false);
-      tiltButton.textContent='Tilt on';tiltButton.setAttribute('aria-pressed','true');
-      window.addEventListener('deviceorientation',orient);
-      sensorTimer=setTimeout(()=>{if(waitingForSensor)disableTilt('Motion sensors are unavailable here. You can still drag the ball.');},3500);
-    }catch(_){disableTilt('Motion access is unavailable. You can still drag the ball.');}
-  });
-  reduced.addEventListener('change',e=>{if(e.matches){disableTilt();setPause(true);}});
-  document.addEventListener('visibilitychange',()=>{stop();resetFetch();if(!document.hidden){neutral=null;run();}});
+  reduced.addEventListener('change',e=>setPause(e.matches));
+  document.addEventListener('visibilitychange',()=>{stop();resetFetch();if(!document.hidden)run();});
   new ResizeObserver(()=>{
     const oldRadius=R; R=ball.getBoundingClientRect().width/2;
     const b=bounds();state.x=clamp(state.x,R,b.x);state.y=clamp(state.y,R,b.y);
     if(oldRadius!==R&&!held)state.y=b.y;
-    neutral=null;draw();run();
+    draw();run();
   }).observe(layer);
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();ball.classList.remove('has-3d');canvas.hidden=true;gl=null;});
   state.x=clamp(layer.clientWidth*.72,R,bounds().x);state.y=bounds().y;

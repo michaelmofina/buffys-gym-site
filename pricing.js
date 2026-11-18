@@ -94,13 +94,25 @@ const HEAP_PHOTOS = [
 const pool=[...HEAP_PHOTOS];
 for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
 const gallery=document.querySelector('.pricing-photos');
+const draggablePricingPhotos=matchMedia('(min-width: 761px) and (pointer: fine)');
 pool.slice(0,3).forEach(photo=>{
  const print=document.createElement('figure');print.className='pricing-print scattered-print';
  const image=document.createElement('img');image.src=photo.src;image.alt=photo.alt;image.draggable=false;print.append(image);gallery.append(print);
  let drag=null,x=0,y=0;
- print.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={x:e.clientX-x,y:e.clientY-y};print.setPointerCapture(e.pointerId);print.style.zIndex=5;});
+ const stop=()=>{
+  const pointerId=drag?.pointerId;drag=null;
+  if(pointerId!==undefined&&print.hasPointerCapture(pointerId))print.releasePointerCapture(pointerId);
+ };
+ print.addEventListener('pointerdown',e=>{
+  if(e.button!==0||e.pointerType==='touch'||!draggablePricingPhotos.matches)return;
+  drag={x:e.clientX-x,y:e.clientY-y,pointerId:e.pointerId};print.setPointerCapture(e.pointerId);print.style.zIndex=5;
+ });
  print.addEventListener('pointermove',e=>{if(!drag)return;x=e.clientX-drag.x;y=e.clientY-drag.y;print.style.translate=`${x}px ${y}px`;});
- const stop=()=>{drag=null;};print.addEventListener('pointerup',stop);print.addEventListener('pointercancel',stop);
+ print.addEventListener('pointerup',stop);print.addEventListener('pointercancel',stop);print.addEventListener('lostpointercapture',stop);
+ draggablePricingPhotos.addEventListener('change',()=>{
+  if(draggablePricingPhotos.matches)return;
+  stop();x=0;y=0;print.style.removeProperty('translate');print.style.removeProperty('z-index');
+ });
 });
 
 const BOOKING_LINKS = {

@@ -75,6 +75,7 @@ dialog h2 { font-size:2.5rem; }
 .pricing-header .page-intro{margin:0}.pricing-header .page-intro h1{margin-bottom:8px!important}.pricing-header .page-intro>p{margin-top:0}
 .pricing-photos{position:relative;height:290px}.pricing-photos .pricing-print{position:absolute;top:24px;width:var(--card-w);margin:0;padding:calc(var(--card-w)*.06944) calc(var(--card-w)*.06944) calc(var(--card-w)*.26389);background:var(--paper-warm);box-sizing:border-box;cursor:grab;touch-action:none;user-select:none}
 .pricing-print img{display:block;width:100%;aspect-ratio:1;object-fit:cover}.pricing-print:nth-child(1){left:0;transform:rotate(-12deg)}.pricing-print:nth-child(2){left:29%;top:0;transform:rotate(7deg)}.pricing-print:nth-child(3){left:58%;top:44px;transform:rotate(14deg)}.pricing-print:active{cursor:grabbing}
+@media(max-width:760px),(pointer:coarse){.pricing-photos .pricing-print{pointer-events:none;touch-action:pan-y;cursor:default}}
 /* A guided plan builder, with a live summary alongside the questions. */
 .plan-builder{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:56px;align-items:start}
 .plan-questions{min-width:0}.plan-question{border:0;padding:0;margin:0 0 36px;min-width:0}.plan-question:last-of-type{margin-bottom:0}.plan-question[hidden]{display:none!important}
